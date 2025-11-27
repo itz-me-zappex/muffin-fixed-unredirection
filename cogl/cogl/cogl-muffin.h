@@ -28,8 +28,8 @@
  *
  */
 
-#ifndef __COGL_MUTTER_H___
-#define __COGL_MUTTER_H___
+#ifndef __COGL_MUFFIN_H___
+#define __COGL_MUFFIN_H___
 
 #include "cogl-config.h"
 #include "cogl-defines.h"
@@ -48,4 +48,8 @@ void cogl_renderer_set_custom_winsys (CoglRenderer                *renderer,
                                       CoglCustomWinsysVtableGetter winsys_vtable_getter,
                                       void                        *user_data);
 
-#endif /* __COGL_MUTTER_H___ */
+COGL_EXPORT
+gboolean cogl_context_format_supports_upload (CoglContext     *ctx,
+                                              CoglPixelFormat  format);
+
+#endif /* __COGL_MUFFIN_H___ */

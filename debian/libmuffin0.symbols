@@ -879,6 +879,7 @@ libmuffin-clutter-0.so.0 libmuffin0 #MINVER#
  clutter_modifier_type_get_type@Base 5.3.0
  clutter_offscreen_effect_create_texture@Base 5.3.0
  clutter_offscreen_effect_get_pipeline@Base 6.6.0
+ clutter_offscreen_effect_get_pipeline@Base 6.4.1
  clutter_offscreen_effect_get_target@Base 5.3.0
  clutter_offscreen_effect_get_target_rect@Base 5.3.0
  clutter_offscreen_effect_get_target_size@Base 5.3.0
@@ -1538,6 +1539,7 @@ libmuffin-cogl-0.so.0 libmuffin0 #MINVER#
  cogl_color_set_red_float@Base 5.3.0
  cogl_color_to_hsl@Base 5.3.0
  cogl_color_unpremultiply@Base 5.3.0
+ cogl_context_format_supports_upload@Base 6.4.1
  cogl_context_get_display@Base 5.3.0
  cogl_context_get_gtype@Base 5.3.0
  cogl_context_get_renderer@Base 5.3.0
@@ -2021,6 +2023,11 @@ libmuffin.so.0 libmuffin0 #MINVER#
  meta_activate_session@Base 6.0.0
  meta_add_clutter_debug_flags@Base 5.3.0
  meta_add_verbose_topic@Base 5.3.0
+ meta_anonymous_file_close_fd@Base 6.4.1
+ meta_anonymous_file_free@Base 6.4.1
+ meta_anonymous_file_new@Base 6.4.1
+ meta_anonymous_file_open_fd@Base 6.4.1
+ meta_anonymous_file_size@Base 6.4.1
  meta_backend_add_gpu@Base 5.3.0
  meta_backend_get_dnd@Base 5.3.0
  meta_backend_get_gpus@Base 5.3.0
@@ -2629,13 +2636,14 @@ libmuffin.so.0 libmuffin0 #MINVER#
  meta_window_get_layer@Base 5.3.0
  meta_window_get_maximized@Base 5.3.0
  meta_window_get_monitor@Base 5.3.0
- meta_window_get_mutter_hints@Base 5.3.0
+ meta_window_get_muffin_hints@Base 5.3.0
  meta_window_get_opacity@Base 5.4.2
  meta_window_get_pid@Base 5.3.0
  meta_window_get_role@Base 5.3.0
  meta_window_get_sandboxed_app_id@Base 5.3.0
  meta_window_get_stable_sequence@Base 5.3.0
  meta_window_get_startup_id@Base 5.3.0
+ meta_window_get_tag@Base 6.4.1
  meta_window_get_tile_match@Base 5.3.0
  meta_window_get_title@Base 5.3.0
  meta_window_get_transient_for@Base 5.3.0
@@ -2670,6 +2678,7 @@ libmuffin.so.0 libmuffin0 #MINVER#
  meta_window_kill@Base 5.3.0
  meta_window_located_on_workspace@Base 5.3.0
  meta_window_lower@Base 5.3.0
+ meta_window_lower_with_transients@Base 6.4.1
  meta_window_make_above@Base 5.3.0
  meta_window_make_fullscreen@Base 5.3.0
  meta_window_maximize@Base 5.3.0

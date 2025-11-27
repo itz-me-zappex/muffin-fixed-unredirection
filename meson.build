@@ -1,13 +1,13 @@
-project('muffin', 'c', version : '6.4.1', meson_version : '>=0.56.0', license : 'GPLv2+')
+project('muffin', 'c', version : '6.4.1', meson_version : '>=1.0.0', license : 'GPLv2+')
 
-mutter_plugin_api_version = '3'
+muffin_plugin_api_version = '3'
 
 split_version = meson.project_version().split('.')
 
 # Automatically increase API version each development cycle,
 # starting with 0 in 3.23.x
 api_version = 0
-libmutter_api_version = '@0@'.format(api_version)
+libmuffin_api_version = '@0@'.format(api_version)
 
 # generic version requirements
 fribidi_req = '>= 1.0.0'
@@ -37,11 +37,11 @@ udev_req = '>= 228'
 gudev_req = '>= 232'
 
 # wayland version requirements
-wayland_server_req = '>= 1.13.0'
-wayland_protocols_req = '>= 1.19'
+wayland_server_req = '>= 1.20'
+wayland_protocols_req = '>= 1.36'
 
 # native backend version requirements
-libinput_req = '>= 1.7'
+libinput_req = '>= 1.19.0'
 gbm_req = '>= 10.3'
 
 # screen cast version requirements
@@ -75,13 +75,13 @@ pcdir = join_paths(libdir, 'pkgconfig')
 gettext_package = meson.project_name()
 localedir = join_paths(datadir, 'locale')
 
-libmutter_name = 'muffin'
+libmuffin_name = 'muffin'
 
-mutter_installed_tests_datadir = join_paths(
-  datadir, 'installed-tests', libmutter_name)
+muffin_installed_tests_datadir = join_paths(
+  datadir, 'installed-tests', libmuffin_name)
 
-mutter_installed_tests_libexecdir = join_paths(
-  libexecdir, 'installed-tests', libmutter_name)
+muffin_installed_tests_libexecdir = join_paths(
+  libexecdir, 'installed-tests', libmuffin_name)
 
 m_dep = cc.find_library('m', required: true)
 x11_dep = dependency('x11')
@@ -216,8 +216,6 @@ if have_wayland_eglstream
     error('Wayland EGLStream support requires Wayland to be enabled')
   endif
 endif
-
-default_driver = get_option('default_driver')
 
 have_sm = get_option('sm')
 if have_sm
@@ -375,14 +373,31 @@ if cc.has_header_symbol('sys/prctl.h', 'prctl')
   cdata.set('HAVE_SYS_PRCTL', 1)
 endif
 
+optional_functions = [
+  'mkostemp',
+  'posix_fallocate',
+  'memfd_create',
+]
+
+foreach function : optional_functions
+  if cc.has_function(function)
+    cdata.set('HAVE_' + function.to_upper(), 1)
+  else
+    message('Optional function ' + function + ' missing')
+  endif
+endforeach
+
 have_xwayland_initfd = false
+have_xwayland_listenfd = false
+
+have_xwayland_byte_swapped_clients = false
 if have_wayland
   xwayland_dep = dependency('xwayland', required: false)
 
   xwayland_path = get_option('xwayland_path')
   if xwayland_path == ''
     if xwayland_dep.found()
-      xwayland_path = xwayland_dep.get_pkgconfig_variable('xwayland')
+      xwayland_path = xwayland_dep.get_variable('xwayland')
     else
       xwayland_path = find_program('Xwayland').full_path()
     endif
@@ -401,7 +416,7 @@ if have_wayland
   # For Xwayland -initfd usage
   use_initfd = get_option('xwayland_initfd')
   if xwayland_dep.found()
-    xwayland_supports_initfd = xwayland_dep.get_pkgconfig_variable('have_initfd') == 'true'
+    xwayland_supports_initfd = xwayland_dep.get_variable('have_initfd') == 'true'
   else
     xwayland_options = run_command(xwayland_path, '-help')
     xwayland_supports_initfd = xwayland_options.stderr().contains('-initfd')
@@ -416,6 +431,25 @@ if have_wayland
   if (have_xwayland_initfd)
     cdata.set('HAVE_XWAYLAND_INITFD', 1)
   endif
+
+    # For Xwayland -listenfd usage
+  if xwayland_dep.found()
+    have_xwayland_listenfd = xwayland_dep.get_variable('have_listenfd') == 'true'
+  endif
+
+  if (have_xwayland_listenfd)
+    cdata.set('HAVE_XWAYLAND_LISTENFD', 1)
+  endif
+
+    # For Xwayland +/-byteswappedclients usage
+  if xwayland_dep.found()
+    have_xwayland_byte_swapped_clients = xwayland_dep.get_variable('have_byteswappedclients',
+                                                                   default_value: 'false') == 'true'
+  endif
+
+  if (have_xwayland_byte_swapped_clients)
+    cdata.set('HAVE_XWAYLAND_BYTE_SWAPPED_CLIENTS', 1)
+  endif
 endif
 
 #xwayland_grab_default_access_rules = get_option('xwayland_grab_default_access_rules')
@@ -424,10 +458,10 @@ xwayland_grab_default_access_rules = ''
 cdata.set_quoted('XWAYLAND_GRAB_DEFAULT_ACCESS_RULES',
                  xwayland_grab_default_access_rules)
 
-cdata.set_quoted('MUTTER_PLUGIN_DIR', join_paths(pkglibdir, 'plugins'))
-cdata.set_quoted('MUTTER_LOCALEDIR', localedir)
-cdata.set_quoted('MUTTER_LIBEXECDIR', libexecdir)
-cdata.set_quoted('MUTTER_PKGDATADIR', pkgdatadir)
+cdata.set_quoted('MUFFIN_PLUGIN_DIR', join_paths(pkglibdir, 'plugins'))
+cdata.set_quoted('MUFFIN_LOCALEDIR', localedir)
+cdata.set_quoted('MUFFIN_LIBEXECDIR', libexecdir)
+cdata.set_quoted('MUFFIN_PKGDATADIR', pkgdatadir)
 
 config_h = configure_file(
   input: 'config.h.meson',
@@ -465,19 +499,20 @@ output = [
   '',
   '    Options:',
   '',
-  '        Wayland.................. ' + have_wayland.to_string(),
-  '        Wayland EGLStream........ ' + have_wayland_eglstream.to_string(),
-  '        Native Backend........... ' + have_native_backend.to_string(),
-  '        EGL Device............... ' + have_egl_device.to_string(),
-  '        Default driver........... ' + default_driver,
-  '        Remote desktop........... ' + have_remote_desktop.to_string(),
-  '        gudev.................... ' + have_libgudev.to_string(),
-  '        Wacom.................... ' + have_libwacom.to_string(),
-  '        SM....................... ' + have_sm.to_string(),
-  '        Startup notification..... ' + have_startup_notification.to_string(),
-  '        Introspection............ ' + have_introspection.to_string(),
-  '        Profiler................. ' + have_profiler.to_string(),
-  '        Xwayland initfd.......... ' + have_xwayland_initfd.to_string(),
+  '        Wayland.......................... ' + have_wayland.to_string(),
+  '        Wayland EGLStream................ ' + have_wayland_eglstream.to_string(),
+  '        Native Backend................... ' + have_native_backend.to_string(),
+  '        EGL Device....................... ' + have_egl_device.to_string(),
+  '        Remote desktop................... ' + have_remote_desktop.to_string(),
+  '        gudev............................ ' + have_libgudev.to_string(),
+  '        Wacom............................ ' + have_libwacom.to_string(),
+  '        SM............................... ' + have_sm.to_string(),
+  '        Startup notification............. ' + have_startup_notification.to_string(),
+  '        Introspection.................... ' + have_introspection.to_string(),
+  '        Profiler......................... ' + have_profiler.to_string(),
+  '        Xwayland initfd.................. ' + have_xwayland_initfd.to_string(),
+  '        Xwayland listenfd................ ' + have_xwayland_listenfd.to_string(),
+  '        Xwayland byte-swapped clients.... ' + have_xwayland_byte_swapped_clients.to_string(),
   '',
   '    Tests:',
   '',

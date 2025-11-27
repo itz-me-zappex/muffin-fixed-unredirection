@@ -31,18 +31,24 @@
 #include "clutter/clutter.h"
 #include "clutter/wayland/clutter-wayland-compositor.h"
 #include "core/main-private.h"
+#include "wayland/meta-wayland-buffer.h"
+#include "wayland/meta-wayland-activation.h"
 #include "wayland/meta-wayland-data-device.h"
 #include "wayland/meta-wayland-dma-buf.h"
 #include "wayland/meta-wayland-egl-stream.h"
+#include "wayland/meta-wayland-idle-inhibit.h"
 #include "wayland/meta-wayland-inhibit-shortcuts-dialog.h"
 #include "wayland/meta-wayland-inhibit-shortcuts.h"
+#include "wayland/meta-wayland-legacy-xdg-foreign.h"
 #include "wayland/meta-wayland-outputs.h"
 #include "wayland/meta-wayland-private.h"
 #include "wayland/meta-wayland-region.h"
 #include "wayland/meta-wayland-seat.h"
 #include "wayland/meta-wayland-subsurface.h"
 #include "wayland/meta-wayland-tablet-manager.h"
+#include "wayland/meta-wayland-xdg-dialog.h"
 #include "wayland/meta-wayland-xdg-foreign.h"
+#include "wayland/meta-wayland-xdg-toplevel-tag.h"
 #include "wayland/meta-xwayland-grab-keyboard.h"
 #include "wayland/meta-xwayland-private.h"
 #include "wayland/meta-xwayland.h"
@@ -419,12 +425,11 @@ meta_wayland_compositor_setup (MetaWaylandCompositor *wayland_compositor)
 			 compositor, compositor_bind))
     g_error ("Failed to register the global wl_compositor");
 
-  wl_display_init_shm (compositor->wayland_display);
+  meta_wayland_init_shm (compositor);
 
   meta_wayland_outputs_init (compositor);
   meta_wayland_data_device_manager_init (compositor);
   meta_wayland_data_device_primary_manager_init (compositor);
-  meta_wayland_data_device_primary_legacy_manager_init (compositor);
   meta_wayland_subsurfaces_init (compositor);
   meta_wayland_shell_init (compositor);
   meta_wayland_pointer_gestures_init (compositor);
@@ -433,11 +438,15 @@ meta_wayland_compositor_setup (MetaWaylandCompositor *wayland_compositor)
   meta_wayland_relative_pointer_init (compositor);
   meta_wayland_pointer_constraints_init (compositor);
   meta_wayland_xdg_foreign_init (compositor);
+  meta_wayland_legacy_xdg_foreign_init (compositor);
   meta_wayland_dma_buf_init (compositor);
   meta_wayland_keyboard_shortcuts_inhibit_init (compositor);
   meta_wayland_surface_inhibit_shortcuts_dialog_init ();
   meta_wayland_text_input_init (compositor);
-  meta_wayland_gtk_text_input_init (compositor);
+  meta_wayland_activation_init (compositor);
+  meta_wayland_idle_inhibit_init (compositor);
+  meta_wayland_init_xdg_wm_dialog (compositor);
+  meta_wayland_xdg_toplevel_tag_init (compositor);
 
   /* Xwayland specific protocol, needs to be filtered out for all other clients */
   if (meta_xwayland_grab_keyboard_init (compositor))

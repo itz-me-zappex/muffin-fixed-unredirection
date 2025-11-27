@@ -67,7 +67,7 @@
 #include "core/util-private.h"
 #include "core/window-private.h"
 #include "core/workspace-private.h"
-#include "meta/compositor-mutter.h"
+#include "meta/compositor-muffin.h"
 #include "meta/compositor.h"
 #include "meta/main.h"
 #include "meta/meta-backend.h"
@@ -175,6 +175,8 @@ enum
 };
 
 static guint display_signals [LAST_SIGNAL] = { 0 };
+
+#define MIN_FULLSCREEN_OBSCURING_WINDOW_SIZE 100
 
 /*
  * The display we're managing.  This is a singleton object.  (Historically,
@@ -992,7 +994,7 @@ meta_display_open (void)
   g_signal_connect (display->gesture_tracker, "state-changed",
                     G_CALLBACK (gesture_tracker_state_changed), display);
 
-  /* We know that if mutter is running as a Wayland compositor,
+  /* We know that if muffin is running as a Wayland compositor,
    * we start out with no windows.
    */
   if (!meta_is_wayland_compositor ())
@@ -1424,7 +1426,7 @@ meta_display_queue_autoraise_callback (MetaDisplay *display,
                         meta_prefs_get_auto_raise_delay (),
                         window_raise_with_delay_callback,
                         window, NULL);
-  g_source_set_name_by_id (display->autoraise_timeout_id, "[mutter] window_raise_with_delay_callback");
+  g_source_set_name_by_id (display->autoraise_timeout_id, "[muffin] window_raise_with_delay_callback");
   display->autoraise_window = window;
 }
 
@@ -2082,7 +2084,7 @@ meta_display_end_grab_op (MetaDisplay *display,
  * Return value: the current grab operation, or %META_GRAB_OP_NONE if
  * Mutter doesn't currently have a grab. %META_GRAB_OP_COMPOSITOR will
  * be returned if a compositor-plugin modal operation is in effect
- * (See mutter_begin_modal_for_plugin())
+ * (See muffin_begin_modal_for_plugin())
  */
 MetaGrabOp
 meta_display_get_grab_op (MetaDisplay *display)
@@ -2273,7 +2275,7 @@ meta_display_ping_window (MetaWindow *window,
     g_timeout_add (check_alive_timeout,
                    meta_display_ping_timeout,
                    ping_data);
-  g_source_set_name_by_id (ping_data->ping_timeout_id, "[mutter] meta_display_ping_timeout");
+  g_source_set_name_by_id (ping_data->ping_timeout_id, "[muffin] meta_display_ping_timeout");
 
   display->pending_pings = g_slist_prepend (display->pending_pings, ping_data);
 
@@ -3149,7 +3151,7 @@ meta_display_show_tablet_mapping_notification (MetaDisplay        *display,
   if (!pretty_name)
     pretty_name = clutter_input_device_get_device_name (pad);
   meta_display_show_osd (display, lookup_tablet_monitor (display, pad),
-                         "input-tablet-symbolic", pretty_name);
+                         "xsi-input-tablet-symbolic", pretty_name);
 }
 
 void
@@ -3172,7 +3174,7 @@ meta_display_notify_pad_group_switch (MetaDisplay        *display,
     g_string_append (message, (i == n_mode) ? "⚫" : "⚪");
 
   meta_display_show_osd (display, lookup_tablet_monitor (display, pad),
-                         "input-tablet-symbolic", message->str);
+                         "xsi-input-tablet-symbolic", message->str);
 
   g_signal_emit (display, display_signals[PAD_MODE_SWITCH], 0, pad,
                  n_group, n_mode);
@@ -3312,7 +3314,7 @@ meta_display_update_tile_preview (MetaDisplay *display,
                        meta_display_update_tile_preview_timeout,
                        display);
       g_source_set_name_by_id (display->tile_preview_timeout_id,
-                               "[mutter] meta_display_update_tile_preview_timeout");
+                               "[muffin] meta_display_update_tile_preview_timeout");
     }
   else
     {
@@ -3540,15 +3542,20 @@ check_fullscreen_func (gpointer data)
           if (meta_window_is_monitor_sized (window))
             covers_monitors = TRUE;
         }
-      else if (window->maximized_horizontally &&
-               window->maximized_vertically)
+      else if (window->type == META_WINDOW_NORMAL)
         {
-          MetaLogicalMonitor *logical_monitor;
+          MetaRectangle window_rect;
+          meta_window_get_frame_rect (window, &window_rect);
 
-          logical_monitor = meta_window_get_main_logical_monitor (window);
-          if (!g_slist_find (obscured_monitors, logical_monitor))
-            obscured_monitors = g_slist_prepend (obscured_monitors,
-                                                 logical_monitor);
+          if (window_rect.width > MIN_FULLSCREEN_OBSCURING_WINDOW_SIZE && window_rect.height > MIN_FULLSCREEN_OBSCURING_WINDOW_SIZE)
+            {
+              MetaLogicalMonitor *logical_monitor;
+
+              logical_monitor = meta_window_get_main_logical_monitor (window);
+              if (!g_slist_find (obscured_monitors, logical_monitor))
+                obscured_monitors = g_slist_prepend (obscured_monitors,
+                                                     logical_monitor);
+            }
         }
 
       if (covers_monitors)

@@ -53,7 +53,7 @@ option('remote_desktop',
 
 option('egl_device',
   type: 'boolean',
-  value: false,
+  value: true,
   description: 'Enable EGLDevice and EGLStream renderer support'
 )
 
@@ -114,7 +114,7 @@ option('clutter_tests',
 option('core_tests',
   type: 'boolean',
   value: true,
-  description: 'Enable mutter core tests'
+  description: 'Enable muffin core tests'
 )
 
 option('tests',
@@ -132,19 +132,13 @@ option('profiler',
 option('installed_tests',
   type: 'boolean',
   value: false,
-  description: 'Enable mutter installed tests'
+  description: 'Enable muffin installed tests'
 )
 
 option('verbose',
   type: 'boolean',
   value: true,
   description: 'Enable verbose logging ability'
-)
-
-option('default_driver',
-  type: 'combo',
-  choices: ['auto', 'gl', 'gl3', 'gles2', 'nop'],
-  value: 'auto'
 )
 
 option('xwayland_path',

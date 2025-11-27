@@ -78,7 +78,7 @@
 #include "core/stack.h"
 #include "core/util-private.h"
 #include "core/workspace-private.h"
-#include "meta/compositor-mutter.h"
+#include "meta/compositor-muffin.h"
 #include "meta/group.h"
 #include "meta/meta-cursor-tracker.h"
 #include "meta/meta-enum-types.h"
@@ -203,7 +203,7 @@ enum
   PROP_DEMANDS_ATTENTION,
   PROP_URGENT,
   PROP_SKIP_TASKBAR,
-  PROP_MUTTER_HINTS,
+  PROP_MUFFIN_HINTS,
   PROP_APPEARS_FOCUSED,
   PROP_RESIZEABLE,
   PROP_ABOVE,
@@ -219,6 +219,7 @@ enum
   PROP_PROGRESS_PULSE,
   PROP_TILE_MODE,
   PROP_OPACITY,
+  PROP_TAG,
   PROP_LAST,
 };
 
@@ -352,6 +353,7 @@ meta_window_finalize (GObject *object)
   g_free (window->gtk_app_menu_object_path);
   g_free (window->gtk_menubar_object_path);
   g_free (window->placement.rule);
+  g_free (window->tag);
 
   G_OBJECT_CLASS (meta_window_parent_class)->finalize (object);
 }
@@ -405,8 +407,8 @@ meta_window_get_property(GObject         *object,
     case PROP_SKIP_TASKBAR:
       g_value_set_boolean (value, win->skip_taskbar);
       break;
-    case PROP_MUTTER_HINTS:
-      g_value_set_string (value, win->mutter_hints);
+    case PROP_MUFFIN_HINTS:
+      g_value_set_string (value, win->muffin_hints);
       break;
     case PROP_APPEARS_FOCUSED:
       g_value_set_boolean (value, meta_window_appears_focused (win));
@@ -452,6 +454,9 @@ meta_window_get_property(GObject         *object,
       break;
     case PROP_OPACITY:
       g_value_set_uint (value, win->opacity);
+      break;
+    case PROP_TAG:
+      g_value_set_string (value, win->tag);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -570,10 +575,10 @@ meta_window_class_init (MetaWindowClass *klass)
                           "Whether the skip-taskbar flag of WM_HINTS is set",
                           FALSE,
                           G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
-  obj_props[PROP_MUTTER_HINTS] =
-    g_param_spec_string ("mutter-hints",
-                         "_MUTTER_HINTS",
-                         "Contents of the _MUTTER_HINTS property of this window",
+  obj_props[PROP_MUFFIN_HINTS] =
+    g_param_spec_string ("muffin-hints",
+                         "_MUFFIN_HINTS",
+                         "Contents of the _MUFFIN_HINTS property of this window",
                          NULL,
                          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
   obj_props[PROP_APPEARS_FOCUSED] =
@@ -673,6 +678,12 @@ meta_window_class_init (MetaWindowClass *klass)
                        0xFF,
                        0xFF,
                        G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
+  obj_props[PROP_TAG] =
+    g_param_spec_string ("tag", NULL, NULL,
+                         NULL,
+                         G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY |
+                         G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, PROP_LAST, obj_props);
 
@@ -1047,6 +1058,7 @@ _meta_window_shared_new (MetaDisplay         *display,
                          MetaCompEffect       effect,
                          XWindowAttributes   *attrs)
 {
+  MetaBackend *backend = meta_get_backend ();
   MetaWorkspaceManager *workspace_manager = display->workspace_manager;
   MetaWindow *window;
 
@@ -1246,7 +1258,11 @@ _meta_window_shared_new (MetaDisplay         *display,
 
   window->compositor_private = NULL;
 
-  window->monitor = meta_window_calculate_main_logical_monitor (window);
+  if (window->rect.width > 0 && window->rect.height > 0)
+    window->monitor = meta_window_calculate_main_logical_monitor (window);
+  else
+    window->monitor = meta_backend_get_current_logical_monitor (backend);
+
   if (window->monitor)
     window->preferred_output_winsys_id = window->monitor->winsys_id;
   else
@@ -4433,6 +4449,7 @@ meta_window_update_monitor (MetaWindow                   *window,
         meta_window_change_workspace (window, workspace_manager->active_workspace);
 
       meta_window_main_monitor_changed (window, old);
+      meta_display_queue_check_fullscreen (window->display);
 
       /* If we're changing monitors, we need to update the has_maximize_func flag,
        * as the working area has changed. */
@@ -5578,6 +5595,13 @@ meta_window_raise (MetaWindow  *window)
 
   g_return_if_fail (!window->override_redirect);
 
+  /* Flush pending visible state now.
+   * It is important that this runs before meta_stack_raise() because
+   * showing a window may overwrite its stacking order based on the
+   * stacking rules for newly shown windows.
+   */
+  meta_window_flush_calc_showing (window);
+
   ancestor = meta_window_find_root_ancestor (window);
 
   meta_topic (META_DEBUG_WINDOW_OPS,
@@ -5627,6 +5651,62 @@ meta_window_lower (MetaWindow  *window)
               "Lowering window %s\n", window->desc);
 
   meta_stack_lower (window->display->stack, window);
+}
+
+static gboolean
+lower_window_and_transients (MetaWindow *window,
+                             gpointer    user_data)
+{
+  MetaWorkspaceManager *workspace_manager = window->display->workspace_manager;
+
+  meta_window_lower (window);
+
+  meta_window_foreach_transient (window, lower_window_and_transients, NULL);
+
+  if (meta_prefs_get_raise_on_click ())
+  {
+    /* Move window to the back of the focusing workspace's MRU list.
+     * Do extra sanity checks to avoid possible race conditions.
+     * (Borrowed from window.c.)
+     */
+    if (workspace_manager->active_workspace &&
+      meta_window_located_on_workspace (window,
+                                        workspace_manager->active_workspace))
+    {
+      GList *link;
+      link = g_list_find (workspace_manager->active_workspace->mru_list,
+                          window);
+      g_assert (link);
+
+      workspace_manager->active_workspace->mru_list =
+      g_list_remove_link (workspace_manager->active_workspace->mru_list,
+                          link);
+      g_list_free (link);
+
+      workspace_manager->active_workspace->mru_list =
+      g_list_append (workspace_manager->active_workspace->mru_list,
+                     window);
+    }
+  }
+
+  return FALSE;
+}
+
+void
+meta_window_lower_with_transients (MetaWindow *window,
+                                   uint32_t    timestamp)
+{
+  MetaWorkspaceManager *workspace_manager = window->display->workspace_manager;
+
+  lower_window_and_transients (window, NULL);
+
+  /* Rather than try to figure that out whether we just lowered
+   * the focus window, assume that's always the case. (Typically,
+   * this will be invoked via keyboard action or by a mouse action;
+   * in either case the window or a modal child will have been focused.) */
+  meta_workspace_focus_default_window (workspace_manager->active_workspace,
+                                       NULL,
+                                       timestamp);
 }
 
 /*
@@ -6943,7 +7023,7 @@ update_resize (MetaWindow *window,
 	  window->display->grab_resize_timeout_id =
 	    g_timeout_add ((int)remaining, update_resize_timeout, window);
 	  g_source_set_name_by_id (window->display->grab_resize_timeout_id,
-                                   "[mutter] update_resize_timeout");
+                                   "[muffin] update_resize_timeout");
 	}
 
       return;
@@ -7898,8 +7978,8 @@ meta_window_is_shaded (MetaWindow *window)
  * meta_window_is_override_redirect:
  * @window: A #MetaWindow
  *
- * Returns: %TRUE if this window isn't managed by mutter; it will
- * control its own positioning and mutter won't draw decorations
+ * Returns: %TRUE if this window isn't managed by muffin; it will
+ * control its own positioning and muffin won't draw decorations
  * among other things.  In X terminology this is "override redirect".
  */
 gboolean
@@ -8264,7 +8344,7 @@ meta_window_get_client_machine (MetaWindow *window)
  * @window: a #MetaWindow
  *
  * Returns: %TRUE if this window originates from a host
- * different from the one running mutter.
+ * different from the one running muffin.
  */
 gboolean
 meta_window_is_remote (MetaWindow *window)
@@ -8273,10 +8353,10 @@ meta_window_is_remote (MetaWindow *window)
 }
 
 /**
- * meta_window_get_mutter_hints:
+ * meta_window_get_muffin_hints:
  * @window: a #MetaWindow
  *
- * Gets the current value of the _MUTTER_HINTS property.
+ * Gets the current value of the _MUFFIN_HINTS property.
  *
  * The purpose of the hints is to allow fine-tuning of the Window Manager and
  * Compositor behaviour on per-window basis, and is intended primarily for
@@ -8284,18 +8364,18 @@ meta_window_is_remote (MetaWindow *window)
  *
  * The property is a list of colon-separated key=value pairs. The key names for
  * any plugin-specific hints must be suitably namespaced to allow for shared
- * use; 'mutter-' key prefix is reserved for internal use, and must not be used
+ * use; 'muffin-' key prefix is reserved for internal use, and must not be used
  * by plugins.
  *
- * Return value: (transfer none): the _MUTTER_HINTS string, or %NULL if no hints
+ * Return value: (transfer none): the _MUFFIN_HINTS string, or %NULL if no hints
  * are set.
  */
 const char *
-meta_window_get_mutter_hints (MetaWindow *window)
+meta_window_get_muffin_hints (MetaWindow *window)
 {
   g_return_val_if_fail (META_IS_WINDOW (window), NULL);
 
-  return window->mutter_hints;
+  return window->muffin_hints;
 }
 
 /**
@@ -9047,7 +9127,7 @@ queue_focus_callback (MetaDisplay *display,
                         focus_data,
                         g_free);
   g_source_set_name_by_id (display->focus_timeout_id,
-                           "[mutter] window_focus_on_pointer_rest_callback");
+                           "[muffin] window_focus_on_pointer_rest_callback");
 }
 
 void
@@ -9443,4 +9523,56 @@ meta_window_get_icon_name (MetaWindow *window)
     g_return_val_if_fail (META_IS_WINDOW (window), NULL);
 
     return window->theme_icon_name;
+}
+
+gboolean
+meta_window_calculate_bounds (MetaWindow *window,
+                              int        *bounds_width,
+                              int        *bounds_height)
+{
+  MetaLogicalMonitor *main_monitor;
+
+  main_monitor = meta_window_get_main_logical_monitor (window);
+  if (main_monitor)
+    {
+      MetaRectangle work_area;
+
+      meta_window_get_work_area_for_logical_monitor (window,
+                                                     main_monitor,
+                                                     &work_area);
+
+      *bounds_width = work_area.width;
+      *bounds_height = work_area.height;
+      return TRUE;
+    }
+  else
+    {
+      return FALSE;
+    }
+}
+
+void
+meta_window_set_tag (MetaWindow *window,
+                     const char *tag)
+{
+  if (g_set_str (&window->tag, tag))
+    g_object_notify_by_pspec (G_OBJECT (window), obj_props[PROP_TAG]);
+}
+
+/**
+ * meta_window_get_tag:
+ * @window: A #MetaWindow
+ *
+ * Get a tag associated to the window.
+ * Under wayland the tag can be set using the toplevel tag protocol,
+ * and under x11 it falls back to using `NET_WM_WINDOW_TAG` atom.
+ *
+ * Returns: (nullable): An associated toplevel tag
+ */
+const char *
+meta_window_get_tag (MetaWindow *window)
+{
+  g_return_val_if_fail (META_IS_WINDOW (window), NULL);
+
+  return window->tag;
 }

@@ -89,6 +89,7 @@ typedef struct _MetaWaylandXdgSurfacePrivate
   struct wl_resource *resource;
   MetaWaylandXdgShellClient *shell_client;
   MetaRectangle geometry;
+  MetaRectangle unconstrained_geometry;
 
   guint configure_sent : 1;
   guint first_buffer_attached : 1;
@@ -182,6 +183,12 @@ static MetaWaylandSurface *
 surface_from_xdg_toplevel_resource (struct wl_resource *resource)
 {
   return surface_from_xdg_surface_resource (resource);
+}
+
+static MetaWaylandXdgPopup *
+meta_wayland_xdg_popup_from_surface (MetaWaylandSurface *surface)
+{
+  return META_WAYLAND_XDG_POPUP (surface->role);
 }
 
 static void
@@ -696,6 +703,18 @@ meta_wayland_xdg_toplevel_send_configure (MetaWaylandXdgToplevel         *xdg_to
   wl_array_init (&states);
   fill_states (xdg_toplevel, &states);
 
+  if (wl_resource_get_version (xdg_toplevel->resource) >=
+      XDG_TOPLEVEL_CONFIGURE_BOUNDS_SINCE_VERSION &&
+      configuration->bounds_width > 0 &&
+      configuration->bounds_height > 0)
+    {
+      xdg_toplevel_send_configure_bounds (xdg_toplevel->resource,
+                                          (configuration->bounds_width /
+                                           configuration->scale),
+                                          (configuration->bounds_height /
+                                           configuration->scale));
+    }
+
   xdg_toplevel_send_configure (xdg_toplevel->resource,
                                configuration->width / configuration->scale,
                                configuration->height / configuration->scale,
@@ -773,8 +792,18 @@ meta_wayland_xdg_toplevel_apply_state (MetaWaylandSurfaceRole  *surface_role,
   if (!xdg_surface_priv->configure_sent)
     {
       MetaWaylandWindowConfiguration *configuration;
+      int bounds_width;
+      int bounds_height;
 
-      configuration = meta_wayland_window_configuration_new_empty ();
+      if (!meta_window_calculate_bounds (window, &bounds_width, &bounds_height))
+        {
+          bounds_width = 0;
+          bounds_height = 0;
+        }
+
+            configuration =
+              meta_wayland_window_configuration_new_empty (bounds_width,
+                                                           bounds_height);
       meta_wayland_xdg_toplevel_send_configure (xdg_toplevel, configuration);
       meta_wayland_window_configuration_free (configuration);
       return;
@@ -807,7 +836,7 @@ meta_wayland_xdg_toplevel_post_apply_state (MetaWaylandSurfaceRole  *surface_rol
     META_WAYLAND_SURFACE_ROLE_CLASS (meta_wayland_xdg_toplevel_parent_class);
   surface_role_class->post_apply_state (surface_role, pending);
 
-  if (!pending->newly_attached)
+  if (!surface->buffer_ref.buffer)
     return;
 
   window_geometry = meta_wayland_xdg_surface_get_window_geometry (xdg_surface);
@@ -1036,6 +1065,7 @@ finish_popup_setup (MetaWaylandXdgPopup *xdg_popup)
 
   xdg_popup->setup.parent_surface = NULL;
   xdg_popup->setup.grab_seat = NULL;
+  xdg_popup->dismissed_by_client = FALSE;
 
   if (!meta_wayland_surface_get_window (parent_surface))
     {
@@ -1102,6 +1132,37 @@ finish_popup_setup (MetaWaylandXdgPopup *xdg_popup)
        * See https://bugzilla.gnome.org/show_bug.cgi?id=771694#c24
        */
       window->input = FALSE;
+    }
+}
+
+static void
+dismiss_invalid_popup (MetaWaylandXdgPopup *xdg_popup)
+{
+  if (xdg_popup->popup)
+    {
+      while (TRUE)
+        {
+          MetaWaylandSurface *top_popup_surface;
+          MetaWaylandXdgPopup *top_xdg_popup;
+
+          top_popup_surface =
+            meta_wayland_popup_get_top_popup (xdg_popup->popup);
+          if (!top_popup_surface)
+            break;
+
+          top_xdg_popup = meta_wayland_xdg_popup_from_surface (top_popup_surface);
+
+          xdg_popup_send_popup_done (top_xdg_popup->resource);
+          meta_wayland_popup_destroy (top_xdg_popup->popup);
+
+          if (top_xdg_popup == xdg_popup)
+            break;
+        }
+    }
+  else
+    {
+      xdg_popup_send_popup_done (xdg_popup->resource);
+      meta_wayland_xdg_popup_unmap (xdg_popup);
     }
 }
 
@@ -1185,7 +1246,7 @@ meta_wayland_xdg_popup_post_apply_state (MetaWaylandSurfaceRole  *surface_role,
     {
       g_warning ("Buggy client caused popup to be placed outside of "
                  "parent window");
-      dismiss_popup (xdg_popup);
+      dismiss_invalid_popup (xdg_popup);
     }
 }
 
@@ -1224,6 +1285,9 @@ meta_wayland_xdg_popup_configure (MetaWaylandShellSurface        *shell_surface,
     meta_wayland_surface_get_window (xdg_popup->parent_surface);
   int geometry_scale;
   int x, y;
+
+  if (!xdg_popup->resource)
+    return;
 
   /* If the parent surface was destroyed, its window will be destroyed
    * before the popup receives the parent-destroy signal. This means that
@@ -1483,6 +1547,15 @@ xdg_surface_set_window_geometry (struct wl_client   *client,
   MetaWaylandSurface *surface = surface_from_xdg_surface_resource (resource);
   MetaWaylandSurfaceState *pending;
 
+  if (width == 0 || height == 0)
+    {
+      g_warning ("Invalid geometry %dx%d+%d+%d set on xdg_surface@%d. Ignoring for "
+      "now, but this will result in client termination in the future.",
+      width, height, x, y,
+      wl_resource_get_id (resource));
+      return;
+    }
+
   pending = meta_wayland_surface_get_pending_state (surface);
   pending->has_new_geometry = TRUE;
   pending->new_geometry.x = x;
@@ -1533,6 +1606,7 @@ meta_wayland_xdg_surface_real_reset (MetaWaylandXdgSurface *xdg_surface)
   priv->first_buffer_attached = FALSE;
   priv->configure_sent = FALSE;
   priv->geometry = (MetaRectangle) { 0 };
+  priv->unconstrained_geometry = (MetaRectangle) { 0 };
   priv->has_set_geometry = FALSE;
 }
 
@@ -1575,12 +1649,28 @@ meta_wayland_xdg_surface_post_apply_state (MetaWaylandSurfaceRole  *surface_role
 
   if (pending->has_new_geometry)
     {
+      priv->unconstrained_geometry = pending->new_geometry;
       meta_wayland_shell_surface_determine_geometry (shell_surface,
                                                      &pending->new_geometry,
                                                      &priv->geometry);
+      if (priv->geometry.width == 0 || priv->geometry.height == 0)
+        {
+          g_warning ("Invalid window geometry for xdg_surface@%d. Ignoring "
+          "for now, but this will result in client termination "
+          "in the future.",
+          wl_resource_get_id (priv->resource));
+          return;
+        }
+
       priv->has_set_geometry = TRUE;
     }
-  else if (!priv->has_set_geometry)
+  else if (priv->has_set_geometry)
+    {
+      meta_wayland_shell_surface_determine_geometry (shell_surface,
+                                                     &priv->unconstrained_geometry,
+                                                     &priv->geometry);
+    }
+  else
     {
       MetaRectangle new_geometry = { 0 };
 

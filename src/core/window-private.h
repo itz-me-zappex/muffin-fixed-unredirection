@@ -203,8 +203,10 @@ struct _MetaWindow
   char *sm_client_id;
   char *wm_client_machine;
 
+  char *tag;
+
   char *startup_id;
-  char *mutter_hints;
+  char *muffin_hints;
   char *sandboxed_app_id;
   char *gtk_theme_variant;
   char *gtk_application_id;
@@ -518,8 +520,8 @@ struct _MetaWindow
    * For X11 windows, this matches XGetGeometry of the toplevel.
    *
    * For Wayland windows, the position matches the position of the
-   * surface associated with shell surface (wl_shell_surface, xdg_surface
-   * etc). The size matches the size surface size as displayed in the stage.
+   * surface associated with shell surface (xdg_surface etc).
+   * The size matches the size surface size as displayed in the stage.
    */
   MetaRectangle buffer_rect;
 
@@ -908,4 +910,11 @@ gboolean meta_window_shortcuts_inhibited (MetaWindow         *window,
                                           ClutterInputDevice *source);
 gboolean meta_window_is_stackable (MetaWindow *window);
 gboolean meta_window_is_focus_async (MetaWindow *window);
+
+gboolean meta_window_calculate_bounds (MetaWindow *window,
+                                       int        *bounds_width,
+                                       int        *bounds_height);
+
+void meta_window_set_tag (MetaWindow *window,
+                          const char *tag);
 #endif

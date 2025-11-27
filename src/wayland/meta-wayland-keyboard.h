@@ -49,6 +49,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include "clutter/clutter.h"
+#include "core/meta-anonymous-file.h"
 #include "wayland/meta-wayland-types.h"
 
 #define META_TYPE_WAYLAND_KEYBOARD (meta_wayland_keyboard_get_type ())
@@ -74,8 +75,7 @@ typedef struct
 {
   struct xkb_keymap *keymap;
   struct xkb_state *state;
-  size_t keymap_size;
-  char *keymap_string;
+  MetaAnonymousFile *keymap_rofile;
 } MetaWaylandXkbInfo;
 
 struct _MetaWaylandKeyboard
@@ -129,6 +129,10 @@ void meta_wayland_keyboard_create_new_resource (MetaWaylandKeyboard *keyboard,
                                                 struct wl_client    *client,
                                                 struct wl_resource  *seat_resource,
                                                 uint32_t id);
+
+gboolean meta_wayland_keyboard_can_grab_surface (MetaWaylandKeyboard *keyboard,
+                                                 MetaWaylandSurface  *surface,
+                                                 uint32_t             serial);
 
 gboolean meta_wayland_keyboard_can_popup (MetaWaylandKeyboard *keyboard,
                                           uint32_t             serial);

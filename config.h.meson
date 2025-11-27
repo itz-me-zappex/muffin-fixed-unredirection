@@ -8,16 +8,16 @@
 #mesondefine PACKAGE_VERSION
 
 /* Search path for plugins */
-#mesondefine MUTTER_PLUGIN_DIR
+#mesondefine MUFFIN_PLUGIN_DIR
 
 /* */
-#mesondefine MUTTER_LOCALEDIR
+#mesondefine MUFFIN_LOCALEDIR
 
 /* */
-#mesondefine MUTTER_LIBEXECDIR
+#mesondefine MUFFIN_LIBEXECDIR
 
 /* */
-#mesondefine MUTTER_PKGDATADIR
+#mesondefine MUFFIN_PKGDATADIR
 
 /* Defined if EGL support is enabled */
 #mesondefine HAVE_EGL
@@ -70,3 +70,18 @@
 
 /* Whether Xwayland has -initfd option */
 #mesondefine HAVE_XWAYLAND_INITFD
+
+/* Whether Xwayland has -listenfd option */
+#mesondefine HAVE_XWAYLAND_LISTENFD
+
+/* Whether the Xwayland supports +/-byteswappedclients */
+#mesondefine HAVE_XWAYLAND_BYTE_SWAPPED_CLIENTS
+
+/* Whether the mkostemp function exists */
+#mesondefine HAVE_MKOSTEMP
+
+/* Whether the posix_fallocate function exists */
+#mesondefine HAVE_POSIX_FALLOCATE
+
+/* Whether the memfd_create function exists */
+#mesondefine HAVE_MEMFD_CREATE
